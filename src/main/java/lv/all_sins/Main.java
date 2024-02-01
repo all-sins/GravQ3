@@ -19,12 +19,18 @@ public class Main {
         OffsetDateTime parsedStartDate = OffsetDateTime.parse(startDateString, formatter.withZone(ZoneId.of("UTC")));
         OffsetDateTime parsedEndDate = OffsetDateTime.parse(endDateString, formatter.withZone(ZoneId.of("UTC")));
 
-        APIRequest apiRequest = new APIRequest(apiEndpoint, apiTarget);
+        long startUnixMillis = APIRequest.offsetDateTimeToUnixMillis(parsedStartDate);
+        long endUnixMillis = APIRequest.offsetDateTimeToUnixMillis(parsedEndDate);
 
-        long startUnixMillis = apiRequest.offsetDateTimeToUnixMillis(parsedStartDate);
-        long endUnixMillis = apiRequest.offsetDateTimeToUnixMillis(parsedEndDate);
+        APIRequest apiRequest = new APIRequest(apiEndpoint, apiTarget);
+        apiRequest.addUrlParam(new URLParameter("symbol", spotPairSymbol));
+        apiRequest.addUrlParam(new URLParameter("limit", String.valueOf(pageMax)));
+        apiRequest.addUrlParam(new URLParameter("startTime", String.valueOf(startUnixMillis)));
+        apiRequest.addUrlParam(new URLParameter("endTime", String.valueOf(endUnixMillis)));
+        String invokeURL = apiRequest.buildURL();
 
         System.out.println(startUnixMillis);
         System.out.println(endUnixMillis);
+        System.out.println(invokeURL);
     }
 }
