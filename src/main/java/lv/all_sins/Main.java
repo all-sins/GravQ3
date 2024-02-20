@@ -77,6 +77,7 @@ public class Main {
         do {
             // Add fromId parameter for subsequent requests.
             if (!firstRun && !execOnce) {
+                // TODO: Fix inclusive page ranges. I think currently there is a single item of duped data.
                 long lastItemId = resultsAsJSONObj.getJSONObject(resultsAsJSONObj.length() - 1).getLong("a");
                 apiRequest.clearUrlParams();
                 apiRequest.addUrlParam(new URLParameter("fromId", String.valueOf(lastItemId)));
