@@ -1,3 +1,5 @@
 .idea/
 target/
-api.response
+META-INF/
+out/
+*.log
