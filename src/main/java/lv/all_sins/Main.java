@@ -14,8 +14,10 @@ import java.util.ArrayList;
 
 public class Main {
     public static void main(String[] args) {
-        // Clear log files.
+        // Clear log files and setup log directory if enabled.
         SimpleLogger.clearLogs();
+        SimpleLogger.initIndividualApiLogsDir();
+        SimpleLogger.clearIndividualApiLogsDir();
 
         String apiEndpoint = "https://api.binance.com";
         String apiTarget = "/api/v3/aggTrades";
