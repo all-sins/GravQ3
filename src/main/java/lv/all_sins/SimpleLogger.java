@@ -1,5 +1,6 @@
 package lv.all_sins;
 
+import java.io.File;
 import java.io.IOException;
 import java.nio.file.*;
 
@@ -7,7 +8,9 @@ public class SimpleLogger {
     // 25 MB log in around 20 seconds. Absolute insanity for my home server.
     // Leaving for diagnostic use, with the toggle being this hard-coded boolean.
     private static final boolean enableApiLog = false;
-    private static final boolean enableIndividualApiLogs = true;
+    // Note that individualApiLogging is a subset feature of apiLogging,
+    // hence it requires apiLogging to be enabled as well.
+    private static final boolean enableIndividualApiLogs = false;
     private static long individualApiLogCount = 0;
     private static String appendSystemNewlineSymbol(String msg) {
         return msg + System.lineSeparator();
@@ -26,17 +29,18 @@ public class SimpleLogger {
     public static void clearIndividualApiLogsDir() {
         String directoryPath = "./apiLogs";
         Path directory = Paths.get(directoryPath);
-        try (DirectoryStream<Path> directoryStream = Files.newDirectoryStream(directory)) {
-            if (!directoryStream.iterator().hasNext()) {
-                appLog("No logs to be cleared in "+directoryPath+", skipping!");
-                return;
-            }
-            for (Path path : directoryStream) {
-                try {
-                    Files.delete(path);
-                    appLog("Deleting: " + path);
-                } catch (IOException e) {
-                    System.err.println("Failed to delete file: " + path + ", " + e.getMessage());
+        try {
+            // Create a directory stream.
+            try (var directoryStream = Files.newDirectoryStream(directory)) {
+                // Iterate over each file in the directory.
+                for (Path file : directoryStream) {
+                    try {
+                        // Delete each file
+                        Files.delete(file);
+                        appLog("Deleted file: " + file);
+                    } catch (IOException e) {
+                        System.err.println("Failed to delete file: " + file + ", " + e.getMessage());
+                    }
                 }
             }
         } catch (IOException e) {

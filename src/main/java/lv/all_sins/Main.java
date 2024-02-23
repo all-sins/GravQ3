@@ -1,23 +1,29 @@
 package lv.all_sins;
 
 import org.json.JSONArray;
+import org.json.JSONObject;
 
 import java.io.BufferedReader;
 import java.io.InputStreamReader;
+import java.math.RoundingMode;
 import java.net.HttpURLConnection;
 import java.net.URL;
 import java.text.DecimalFormat;
+import java.text.DecimalFormatSymbols;
 import java.time.OffsetDateTime;
 import java.time.ZoneId;
 import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
+import java.util.Locale;
 
 public class Main {
     public static void main(String[] args) {
         // Clear log files and setup log directory if enabled.
+        SimpleLogger.appLog("Cleaning up...");
         SimpleLogger.clearLogs();
         SimpleLogger.initIndividualApiLogsDir();
         SimpleLogger.clearIndividualApiLogsDir();
+        SimpleLogger.appLog("Done.");
 
         String apiEndpoint = "https://api.binance.com";
         String apiTarget = "/api/v3/aggTrades";
@@ -27,7 +33,8 @@ public class Main {
         String startDateString = "2023-01-01 00:00:00:000 Z";
         String endDateString = "2023-01-01 23:59:59:999 Z";
 
-        DateTimeFormatter formatter = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss:SSS zzz");
+        final DateTimeFormatter formatter = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss:SSS zzz");
+        final Runtime runtime = Runtime.getRuntime();
 
         OffsetDateTime parsedStartDate = OffsetDateTime.parse(startDateString, formatter.withZone(ZoneId.of("UTC")));
         OffsetDateTime parsedEndDate = OffsetDateTime.parse(endDateString, formatter.withZone(ZoneId.of("UTC")));
@@ -72,21 +79,18 @@ public class Main {
         boolean firstRun = true;
         boolean debugSingleRun = false;
         boolean execOnce = false;
-        boolean trueLastIdFound = false;
-        boolean trueLastIdInitialized = false;
-        long trueLastId = 0;
+        boolean trueLastTimestampFound = false;
+        long preventInclusiveRangeDupe = 0L;
         int iteration = 0;
         do {
             // Add fromId parameter for subsequent requests.
-            if (!firstRun && !execOnce) {
+            if (!firstRun) {
                 // TODO: Fix inclusive page ranges. I think currently there is a single item of duped data.
-                long lastItemId = resultsAsJSONObj.getJSONObject(resultsAsJSONObj.length() - 1).getLong("a");
                 apiRequest.clearUrlParams();
-                apiRequest.addUrlParam(new URLParameter("fromId", String.valueOf(lastItemId)));
+                apiRequest.addUrlParam(new URLParameter("fromId", String.valueOf(preventInclusiveRangeDupe)));
                 apiRequest.addUrlParam(new URLParameter("symbol", spotPairSymbol));
                 apiRequest.addUrlParam(new URLParameter("limit", String.valueOf(pageMax)));
                 invokeURL = apiRequest.buildURL();
-                execOnce = true;
             }
             StringBuilder response = new StringBuilder();
             try {
@@ -124,23 +128,33 @@ public class Main {
             // First and last result of the 1000 items respectively.
 
             resultsAsJSONObj = new JSONArray(response.toString());
-            if (!trueLastIdInitialized) {
-                trueLastId = resultsAsJSONObj.getJSONObject(0).getLong("l");
-                trueLastIdInitialized = true;
-            }
             SimpleLogger.appLog("Index:0 AggID:"+resultsAsJSONObj.getJSONObject(0).getLong("a"));
             SimpleLogger.appLog("Index:1000 AggID:"+resultsAsJSONObj.getJSONObject(resultsAsJSONObj.length() - 1).getLong("a"));
+            long currentTimestamp = 0L;
             for (int i = 0; i < resultsAsJSONObj.length(); i++) {
-                aggTrades.add(AggregateTrade.fromJson(resultsAsJSONObj.getJSONObject(i)));
-                if (resultsAsJSONObj.getJSONObject(i).getLong("a") == trueLastId) {
-                    SimpleLogger.appLog("trueLastId found!");
-                    SimpleLogger.appLog("Expected: "+trueLastId);
-                    SimpleLogger.appLog("Found: "+resultsAsJSONObj.getJSONObject(i).getLong("a"));
-                    trueLastIdFound = true;
+                JSONObject currentJsonObj = resultsAsJSONObj.getJSONObject(i);
+                currentTimestamp = currentJsonObj.getLong("T");
+                if (currentTimestamp > endUnixMillis) {
+                    SimpleLogger.appLog("trueLastTimestamp found!");
+                    SimpleLogger.appLog("Expected: "+endUnixMillis);
+                    SimpleLogger.appLog("Found: "+currentTimestamp);
+                    trueLastTimestampFound = true;
                     break;
                 }
+                AggregateTrade currentAgg = AggregateTrade.fromJson(currentJsonObj);
+                aggTrades.add(currentAgg);
             }
+            AggregateTrade lastAggTrade = aggTrades.get(aggTrades.size() - 1);
+            long lastId = lastAggTrade.getTradeId();
+            preventInclusiveRangeDupe = lastId + 1;
+
             SimpleLogger.appLog("aggTrades size:"+aggTrades.size());
+            long lastTimestampAdded = lastAggTrade.getTimestamp();
+            OffsetDateTime lastTimestampAddedHumanReadable = APIRequest.unixMillisToOffsetDateTime(lastTimestampAdded);
+
+            // Cool diagnostics.
+            long mbUsed = ( (runtime.totalMemory() - runtime.freeMemory()) / (1024 * 1024) );
+            System.out.println(lastTimestampAddedHumanReadable+" "+currentTimestamp+" "+aggTrades.size()+" "+mbUsed+"MB");
 
             iteration++;
 
@@ -151,21 +165,52 @@ public class Main {
             // Throttle requests to user presses for debug.
             // Scanner scanner = new Scanner(System.in);
             // scanner.nextLine();
-        } while (resultsAsJSONObj.length() == 1000 || !trueLastIdFound);
+        } while (!trueLastTimestampFound);
 
         SimpleLogger.appLog("Fetching of data finnished!");
         SimpleLogger.appLog("Calculating "+aggTrades.size()+" objects...");
 
-        final DecimalFormat decimalFormat = new DecimalFormat("#.########");
-        double priceSum = 0;
-        long totalTrades = aggTrades.size();
-        for (AggregateTrade aggTrade : aggTrades) {
-            priceSum += aggTrade.getPrice();
-        }
+        final DecimalFormatSymbols symbols = DecimalFormatSymbols.getInstance(Locale.US);
+        final DecimalFormat decimalFormat = new DecimalFormat("#.########", symbols);
+        decimalFormat.setRoundingMode(RoundingMode.DOWN); // Disables rounding and just truncates instead.
 
-        SimpleLogger.resultLog("priceSum:"+priceSum);
-        SimpleLogger.resultLog("totalTrades:"+totalTrades);
-        SimpleLogger.resultLog("priceSum/totalTrades:"+priceSum / totalTrades);
-        SimpleLogger.resultLog("decimalFormat8Digits@priceSum/totalTrades:"+decimalFormat.format(priceSum / totalTrades));
+        // Weighted Average Price = (Every Price * Every Quantity) / Total Quantity
+        // Weighted Average Price = (totalTradeValue) / totalQuantity
+        double totalTradeValue = 0;
+        double totalQuantity = 0;
+        for (AggregateTrade aggTrade : aggTrades) {
+            totalTradeValue += aggTrade.getPrice() * aggTrade.getQuantity();
+            totalQuantity += aggTrade.getQuantity();
+        }
+        double preformatResult = totalTradeValue / totalQuantity;
+        String resultEightDigitsFloatPrecision = decimalFormat.format(preformatResult);
+
+        SimpleLogger.resultLog("totalTradeValue:"+totalTradeValue);
+        SimpleLogger.resultLog("totalQuantity:"+totalQuantity);
+        SimpleLogger.resultLog("totalTradeValue/totalQuantity:"+totalTradeValue / totalQuantity);
+        SimpleLogger.resultLog("decimalFormat8Digits@priceSum/totalTrades:"+ resultEightDigitsFloatPrecision);
+
+        String decimalPointSuffix = resultEightDigitsFloatPrecision.substring(resultEightDigitsFloatPrecision.indexOf(".") + 1);
+        // (hint: sum of first 8 digits after comma should be 37)
+        String conditionalMessage;
+        long castComputeResult = castComputeDigitSum(Long.parseLong(decimalPointSuffix));
+        if (castComputeResult == 37) {
+            conditionalMessage = "ValidationPassed";
+        } else {
+            conditionalMessage = "ValidationFailed";
+        }
+        SimpleLogger.resultLog(conditionalMessage);
+        SimpleLogger.resultLog(decimalPointSuffix);
+        SimpleLogger.resultLog("castComputeResult:"+castComputeResult);
+        SimpleLogger.resultLog("expected:37");
+    }
+
+    public static long castComputeDigitSum(long number) {
+        long tmpSum = 0;
+        char[] chars = String.valueOf(number).toCharArray();
+        for (char eachChar : chars) {
+            tmpSum += (int) eachChar - '0';
+        }
+        return tmpSum;
     }
 }

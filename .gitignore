@@ -1,5 +1,11 @@
+# IDE configuration.
 .idea/
+
+# Compiler output.
 target/
 META-INF/
 out/
+
+# Logs and log directories.
 *.log
+apiLogs/
